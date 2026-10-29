@@ -1,0 +1,711 @@
+<title>MoMUN Admin Desk</title>
+<meta name="claude:viewport-fit-sides" content="cover">
+<link rel="preconnect" href="https://fonts.googleapis.com">
+<link rel="stylesheet" href="https://fonts.googleapis.com/css2?family=Archivo:wdth,wght@62..125,500;62..125,700;62..125,800&family=Public+Sans:wght@400;500;600;700&family=JetBrains+Mono:wght@500&display=swap">
+<script src="https://cdnjs.cloudflare.com/ajax/libs/xlsx/0.18.5/xlsx.full.min.js"></script>
+<style>
+/* Layout: an admin desk — slot coverage strip up top, a committee × time-slot board below, roster tab beside it. */
+/* MoMUN green (#2b5232, momun.eu theme colour) carries the brand; neutrals lean slightly green. */
+:root{
+  --bg:#F1F4F1; --surface:#FFFFFF; --sunk:#E4EAE5; --ink:#15241A; --muted:#58695D; --line:#CBD6CE;
+  --accent:#2B5232; --accent-ink:#FFFFFF; --accent-soft:#DCE9DF;
+  --ok:#2B5232; --ok-soft:#DCE9DF; --short:#B4441F; --short-soft:#FBE3D8; --warn:#8A6200; --warn-soft:#FBF0CC;
+  --display:"Archivo","Arial Narrow",system-ui,sans-serif; --body:"Public Sans",system-ui,-apple-system,"Segoe UI",sans-serif; --mono:"JetBrains Mono",ui-monospace,Menlo,monospace;
+}
+@media (prefers-color-scheme:dark){:root:not([data-theme="light"]){
+  --bg:#0F1A13; --surface:#16251B; --sunk:#1D3024; --ink:#E5EEE7; --muted:#9BAEA0; --line:#2B4233;
+  --accent:#7FC08F; --accent-ink:#0D1A11; --accent-soft:#1F3D28;
+  --ok:#7FC08F; --ok-soft:#1F3D28; --short:#F08A62; --short-soft:#43231A; --warn:#E8C25A; --warn-soft:#3A3114; color-scheme:dark}}
+:root[data-theme="dark"]{
+  --bg:#0F1A13; --surface:#16251B; --sunk:#1D3024; --ink:#E5EEE7; --muted:#9BAEA0; --line:#2B4233;
+  --accent:#7FC08F; --accent-ink:#0D1A11; --accent-soft:#1F3D28;
+  --ok:#7FC08F; --ok-soft:#1F3D28; --short:#F08A62; --short-soft:#43231A; --warn:#E8C25A; --warn-soft:#3A3114; color-scheme:dark}
+*{box-sizing:border-box}
+[hidden]{display:none!important}
+body{background:var(--bg);color:var(--ink);font-family:var(--body);font-size:14px;line-height:1.45;
+  padding-left:max(16px,env(safe-area-inset-left,0px));padding-right:max(16px,env(safe-area-inset-right,0px));padding-block:20px 48px}
+.wrap{max-width:1180px;margin:0 auto;display:flex;flex-direction:column;gap:18px}
+h1,h2,h3{font-family:var(--display);text-wrap:balance;margin:0}
+h1{font-size:clamp(26px,4vw,36px);font-weight:800;font-stretch:78%;letter-spacing:.01em;line-height:1}
+h2{font-size:18px;font-weight:700;font-stretch:85%}
+.eyebrow{font-family:var(--display);font-stretch:90%;font-weight:700;text-transform:uppercase;letter-spacing:.12em;font-size:11px;color:var(--accent)}
+.muted{color:var(--muted)}
+.mono{font-family:var(--mono);font-size:12px;font-variant-numeric:tabular-nums}
+header{display:flex;flex-wrap:wrap;gap:12px 24px;align-items:flex-end;justify-content:space-between}
+header .lede{max-width:60ch;margin:6px 0 0;color:var(--muted)}
+button,select,input,textarea{font:inherit;color:inherit}
+button{cursor:pointer;border-radius:8px;border:1px solid var(--line);background:var(--surface);padding:7px 12px;font-weight:600}
+button:hover{border-color:var(--accent)}
+button:focus-visible,input:focus-visible,select:focus-visible,textarea:focus-visible,.chip button:focus-visible{outline:2px solid var(--accent);outline-offset:2px}
+button.primary{background:var(--accent);border-color:var(--accent);color:var(--accent-ink)}
+button.danger{color:var(--short);border-color:var(--short)}
+button.ghost{border-color:transparent;background:transparent}
+button:disabled{opacity:.5;cursor:not-allowed}
+.btnrow{display:flex;flex-wrap:wrap;gap:8px;align-items:center}
+
+/* coverage strip */
+.strip{display:grid;grid-template-columns:repeat(4,minmax(0,1fr));gap:10px}
+@media (max-width:760px){.strip{grid-template-columns:repeat(2,minmax(0,1fr))}}
+.slotcard{background:var(--surface);border:1px solid var(--line);border-radius:10px;padding:12px 14px;display:flex;flex-direction:column;gap:6px}
+.slotcard .day{font-family:var(--display);font-stretch:85%;font-weight:700;font-size:15px}
+.slotcard .big{font-family:var(--display);font-weight:800;font-stretch:80%;font-size:28px;line-height:1;font-variant-numeric:tabular-nums}
+.slotcard .big small{font-size:14px;font-weight:600;color:var(--muted)}
+.bar{height:6px;border-radius:3px;background:var(--sunk);overflow:hidden}
+.bar i{display:block;height:100%;background:var(--ok)}
+.bar.short i{background:var(--short)}
+.alert{border-radius:10px;padding:10px 14px;background:var(--short-soft);color:var(--short);font-weight:600}
+.alert.ok{background:var(--ok-soft);color:var(--ok)}
+.alert.warn{background:var(--warn-soft);color:var(--warn)}
+
+.toolbar{display:flex;flex-wrap:wrap;gap:10px 16px;align-items:center;justify-content:space-between}
+.tabs{display:flex;gap:4px;background:var(--sunk);padding:4px;border-radius:10px}
+.tabs button{border:0;background:transparent;padding:6px 14px}
+.tabs button[aria-selected="true"]{background:var(--surface);box-shadow:0 1px 2px rgba(0,0,0,.12)}
+.toggle{display:inline-flex;gap:6px;align-items:center;font-weight:500}
+.toggle input{accent-color:var(--accent);width:16px;height:16px}
+
+/* board */
+.boardwrap{overflow-x:auto;border:1px solid var(--line);border-radius:12px;background:var(--surface)}
+table.board{border-collapse:collapse;width:100%;min-width:780px}
+.board th,.board td{border-bottom:1px solid var(--line);padding:8px 10px;vertical-align:top;text-align:left}
+.board td+td,.board th+th{border-left:1px solid var(--line)}
+.board thead th{background:var(--sunk);font-family:var(--display);font-stretch:85%;font-weight:700;font-size:13px}
+.board thead th .mono{display:block;font-weight:500;color:var(--muted)}
+.board tbody th{width:190px;font-weight:600}
+.board tr:last-child td,.board tr:last-child th{border-bottom:0}
+.cname{display:flex;flex-direction:column;gap:4px}
+.cname input{width:100%;padding:5px 7px;border:1px solid var(--line);border-radius:6px;background:var(--bg)}
+td.cell{min-width:140px}
+td.cell.short{background:var(--short-soft)}
+td.cell.ok{background:color-mix(in srgb,var(--ok-soft) 55%,transparent)}
+.cellin{display:flex;flex-direction:column;gap:6px;align-items:flex-start}
+.chip{display:inline-flex;align-items:center;gap:4px;border-radius:999px;background:var(--surface);border:1px solid var(--line);padding:2px 4px 2px 10px;font-weight:600;font-size:13px;max-width:100%}
+.chip.other{border-style:dashed}
+.chip span{overflow:hidden;text-overflow:ellipsis;white-space:nowrap}
+.chip button{border:0;background:transparent;padding:0 6px;border-radius:999px;color:var(--muted);font-weight:700;line-height:1.4}
+.addbtn{font-size:12px;padding:3px 9px;border-style:dashed;background:transparent;color:var(--accent)}
+.needtag{font-size:11px;font-weight:700;color:var(--short);text-transform:uppercase;letter-spacing:.06em}
+.need{display:flex;gap:4px;align-items:center;font-size:12px;color:var(--muted)}
+.need select{padding:2px 4px;border-radius:5px;border:1px solid var(--line);background:var(--bg)}
+
+/* volunteers */
+.filters{display:flex;flex-wrap:wrap;gap:8px;align-items:center}
+.filters input[type=search]{padding:7px 10px;border:1px solid var(--line);border-radius:8px;background:var(--surface);min-width:0;flex:1 1 200px;max-width:320px}
+.seg{display:flex;flex-wrap:wrap;gap:4px}
+.seg button{font-size:13px;padding:5px 10px}
+.seg button[aria-pressed="true"]{background:var(--accent-soft);border-color:var(--accent);color:var(--ink)}
+.vlist{display:flex;flex-direction:column;border:1px solid var(--line);border-radius:12px;background:var(--surface);overflow:hidden}
+.vrow{display:grid;grid-template-columns:minmax(0,1.3fr) minmax(0,1.6fr) minmax(0,1.1fr) auto;gap:10px 16px;padding:12px 14px;border-bottom:1px solid var(--line);align-items:center}
+.vrow:last-child{border-bottom:0}
+@media (max-width:820px){.vrow{grid-template-columns:minmax(0,1fr) auto}.vrow .slots,.vrow .contact{grid-column:1 / -1}}
+.vname{font-weight:700;font-size:15px}
+.tags{display:flex;flex-wrap:wrap;gap:4px;margin-top:4px}
+.tag{font-size:11px;font-weight:700;letter-spacing:.04em;text-transform:uppercase;border-radius:4px;padding:1px 6px;background:var(--sunk);color:var(--muted)}
+.tag.admin{background:var(--accent-soft);color:var(--accent)}
+.tag.review{background:var(--warn-soft);color:var(--warn)}
+.slots{display:grid;grid-template-columns:repeat(4,minmax(0,1fr));gap:4px}
+.sl{border-radius:6px;padding:4px 6px;font-size:11px;line-height:1.3;border:1px solid var(--line);color:var(--muted);min-width:0}
+.sl b{display:block;font-family:var(--display);font-stretch:85%;font-size:11px;letter-spacing:.03em;color:var(--muted)}
+.sl.av{border-color:var(--accent);color:var(--ink)}
+.sl.as{background:var(--accent);border-color:var(--accent);color:var(--accent-ink)}
+.sl.as b{color:var(--accent-ink)}
+.sl span{display:block;overflow:hidden;text-overflow:ellipsis;white-space:nowrap}
+.contact{display:flex;flex-direction:column;gap:2px;min-width:0}
+.contact .mono{user-select:all;overflow-wrap:anywhere}
+.note{font-size:12px;color:var(--muted);margin-top:4px;overflow-wrap:anywhere}
+
+/* dialogs */
+dialog{border:1px solid var(--line);border-radius:14px;background:var(--surface);color:var(--ink);padding:0;width:min(560px,calc(100vw - 32px));max-height:calc(100vh - 48px)}
+dialog::backdrop{background:rgba(10,20,35,.45)}
+.dlg{display:flex;flex-direction:column;gap:14px;padding:18px 20px;max-height:calc(100vh - 50px);overflow:auto}
+.dlg header{align-items:flex-start}
+.picklist{display:flex;flex-direction:column;gap:6px}
+.pick{display:flex;justify-content:space-between;gap:10px;align-items:center;text-align:left;width:100%;font-weight:500}
+.pick .who{font-weight:700}
+.pick small{color:var(--muted);display:block;font-weight:500}
+form.grid{display:grid;grid-template-columns:1fr 1fr;gap:12px}
+form.grid .full{grid-column:1 / -1}
+@media (max-width:480px){form.grid{grid-template-columns:1fr}}
+label.f{display:flex;flex-direction:column;gap:4px;font-weight:600;font-size:13px}
+label.f input,label.f select,label.f textarea{padding:7px 9px;border:1px solid var(--line);border-radius:7px;background:var(--bg);font-weight:400}
+fieldset{border:1px solid var(--line);border-radius:8px;padding:8px 12px;display:flex;flex-wrap:wrap;gap:8px 16px;margin:0}
+legend{font-weight:600;font-size:13px;padding:0 4px}
+.toast{position:fixed;left:50%;transform:translateX(-50%);bottom:calc(20px + env(safe-area-inset-bottom,0px));background:var(--ink);color:var(--bg);padding:10px 16px;border-radius:10px;font-weight:600;max-width:calc(100vw - 32px);z-index:20}
+.empty{padding:28px;text-align:center;color:var(--muted)}
+textarea.rost{width:100%;min-height:260px;font-family:var(--mono);font-size:12px;padding:10px;border:1px solid var(--line);border-radius:8px;background:var(--bg)}
+@media (prefers-reduced-motion:no-preference){.chip{transition:border-color .15s}}
+.small{font-size:12px}
+.userbar{display:flex;flex-wrap:wrap;justify-content:space-between;align-items:center;gap:8px;font-size:13px;color:var(--muted);border-bottom:1px solid var(--line);padding-bottom:8px}
+.userbar b{color:var(--ink)}
+.gate,.mewrap{min-height:70vh;display:grid;place-items:center}
+.gatecard,.mecard{width:min(460px,100%);background:var(--surface);border:1px solid var(--line);border-radius:16px;padding:26px 24px;display:flex;flex-direction:column;gap:12px;border-top:6px solid var(--accent)}
+.mecard{width:min(560px,100%)}
+.gateform{display:flex;flex-direction:column;gap:8px}
+.gateform input{padding:11px 12px;border:1px solid var(--line);border-radius:9px;background:var(--bg);font-size:16px}
+.gateform button{padding:11px;font-size:15px}
+.gatecard p,.mecard p{margin:0}
+.mehead{display:flex;justify-content:space-between;align-items:flex-start;gap:12px}
+.mebody{display:flex;flex-direction:column;gap:8px}
+.shift{display:grid;grid-template-columns:7.5rem minmax(0,1fr);gap:4px 14px;padding:12px 14px;border-radius:10px;border:1px solid var(--line);align-items:center}
+.shift .when b{display:block;font-family:var(--display);font-stretch:85%;font-size:15px}
+.shift .where{font-weight:700;font-size:16px;overflow-wrap:anywhere}
+.shift.on{background:var(--accent-soft);border-color:var(--accent)}
+.shift.off .where{font-weight:500;color:var(--muted);font-size:14px}
+.field{display:flex;flex-direction:column;gap:6px}
+.field label{display:flex;align-items:center;gap:8px;font-weight:700;font-size:14px}
+.step{display:inline-grid;place-items:center;width:22px;height:22px;border-radius:50%;background:var(--accent);color:var(--accent-ink);font-size:12px;font-weight:700}
+.gatecard.org{border-top-color:var(--ink)}
+.method{display:grid;grid-template-columns:1fr 1fr;gap:4px;background:var(--sunk);padding:4px;border-radius:10px}
+.method button{border:0;background:transparent;padding:8px 6px;font-size:14px}
+.method button[aria-selected="true"]{background:var(--surface);box-shadow:0 1px 2px rgba(0,0,0,.12);color:var(--accent)}
+.orgswitch{display:flex;flex-wrap:wrap;justify-content:space-between;align-items:center;gap:8px;border-top:1px solid var(--line);padding-top:12px;margin-top:4px}
+/* phone layout */
+.mboard{display:none}
+.mtabs{display:grid;grid-template-columns:repeat(4,minmax(0,1fr));gap:4px;background:var(--sunk);padding:4px;border-radius:10px}
+.mtabs button{border:0;background:transparent;padding:8px 2px;display:flex;flex-direction:column;align-items:center;gap:2px;min-height:48px}
+.mtabs button b{font-family:var(--display);font-stretch:85%;font-size:14px}
+.mtabs button span{font-size:12px;font-variant-numeric:tabular-nums;font-weight:700}
+.mtabs .bad{color:var(--short)}.mtabs .good{color:var(--ok)}
+.mtabs button[aria-selected="true"]{background:var(--surface);box-shadow:0 1px 2px rgba(0,0,0,.12)}
+.mrooms{display:flex;flex-direction:column;gap:8px}
+.mroom{border:1px solid var(--line);border-radius:12px;padding:12px;display:flex;flex-direction:column;gap:8px;background:var(--surface)}
+.mroom.short{background:var(--short-soft);border-color:color-mix(in srgb,var(--short) 35%,var(--line))}
+.mroomname{font-weight:700;font-size:15px}
+.mroom input{padding:9px 10px;border:1px solid var(--line);border-radius:8px;background:var(--bg)}
+.mroom .cellin{flex-direction:row;flex-wrap:wrap;align-items:center}
+@media (max-width:700px){
+  .mboard{display:flex;flex-direction:column;gap:10px}
+  .boardwrap,#viewBoard>p{display:none}
+  header .btnrow,#boardTools{width:100%}
+  header .btnrow>*,#boardTools>button{flex:1 1 calc(50% - 8px)}
+  header .btnrow>label>button{width:100%}
+  #boardTools .toggle{flex:1 1 100%}
+  .toolbar{flex-direction:column;align-items:stretch}
+  .tabs{width:100%}.tabs button{flex:1}
+  .filters input[type=search]{max-width:none}
+  dialog{width:100vw;max-width:100vw;max-height:92dvh;margin:auto 0 0;border-radius:16px 16px 0 0}
+  .dlg{max-height:92dvh;padding-bottom:calc(18px + env(safe-area-inset-bottom,0px))}
+  .strip .slotcard .big{font-size:24px}
+}
+@media (pointer:coarse){
+  button{min-height:40px}
+  .chip{padding:4px 4px 4px 12px;font-size:14px}
+  .chip button{min-width:32px;min-height:32px;font-size:16px}
+  .addbtn{min-height:36px;padding:6px 12px;font-size:13px}
+  input,select,textarea{font-size:16px!important}
+  .pick{min-height:52px}
+}
+.steps{margin:0;padding-left:20px;display:flex;flex-direction:column;gap:6px}
+</style>
+
+<section id="gate" class="gate" hidden>
+  <div class="gatecard">
+    <div class="eyebrow" id="gateEyebrow">MoraitisMUN · Admin team</div>
+    <h1 id="gateTitle">Volunteer sign in</h1>
+    <p class="muted" id="gateLede">Sign in with your full name or with your phone number, as you wrote it on the volunteer form.</p>
+    <div class="method" id="methodTabs" role="tablist" aria-label="Sign in with">
+      <button type="button" role="tab" id="mName" aria-selected="true">Sign in with name</button>
+      <button type="button" role="tab" id="mPhone" aria-selected="false">Sign in with number</button>
+    </div>
+    <form id="gateForm" class="gateform">
+      <div class="field" id="nameField"><label for="gateName">Full name</label>
+      <input id="gateName" autocomplete="name" placeholder="e.g. Jim Bookis"></div>
+      <div class="field" id="pwField" hidden><label for="gatePw" id="pwLabel">Phone number</label>
+      <input id="gatePw" type="password" inputmode="tel" autocomplete="current-password" placeholder="69XXXXXXXX"></div>
+      <div id="pickWrap" class="picklist" hidden></div>
+      <p id="gateErr" class="small" style="color:var(--short);font-weight:600" hidden></p>
+      <button class="primary" type="submit" id="gateBtn">Show my hours</button>
+    </form>
+    <div class="orgswitch"><span class="muted small" id="orgHint">Head of admin or deputy?</span><button type="button" id="btnOrg">Organizer sign in</button></div>
+  </div>
+</section>
+
+<section id="me" class="mewrap" hidden>
+  <div class="mecard">
+    <div class="mehead"><div><div class="eyebrow">MoraitisMUN · Sat 31 Oct – Sun 1 Nov</div><h1 id="meName">Hello</h1><div class="tags" id="meTags"></div></div><button type="button" class="ghost switch">Not you?</button></div>
+    <div id="meBody" class="mebody"><p class="muted">Loading your hours…</p></div>
+    <p class="muted small">Hours can change before the conference. Check back here the night before.</p>
+  </div>
+</section>
+
+<div class="wrap" id="lead" hidden>
+  <div class="userbar"><span>Signed in as <b id="leadName"></b> · organizer</span><button type="button" class="ghost switch">Switch name</button></div>
+  <div id="noaccess" class="alert" hidden>This name is on the organizer list, but this account doesn't have edit access to the board yet. Ask the head of admin to add you, then reload.</div>
+  <header>
+    <div>
+      <div class="eyebrow">MoraitisMUN · Sat 31 Oct – Sun 1 Nov</div>
+      <h1>Admin Desk</h1>
+      <p class="lede">Every committee room needs an admin for every session. Assign people by hand, or press Auto-fill: it shares the sessions out fairly and moves admins to a different committee each session.</p>
+    </div>
+    <div class="btnrow">
+      <button id="btnAdd" class="primary" type="button">Add volunteer</button>
+      <label class="toggle" style="position:relative"><button id="btnImport" type="button">Import form responses</button><input id="fileIn" type="file" accept=".xlsx,.xls,.csv" hidden></label>
+      <button id="btnRoster" type="button">Roster text</button>
+      <button id="btnInvite" type="button">Invite admins</button>
+    </div>
+  </header>
+
+  <div id="ro" class="alert warn" hidden>You can view this board but not change it. Ask the owner for edit access.</div>
+  <section class="strip" id="strip" aria-label="Coverage per session"></section>
+  <div id="summary" class="alert" hidden></div>
+
+  <div class="toolbar">
+    <div class="tabs" role="tablist">
+      <button id="tabBoard" role="tab" aria-selected="true" type="button">Committee board</button>
+      <button id="tabVols" role="tab" aria-selected="false" type="button">Volunteers <span id="volCount" class="muted"></span></button>
+    </div>
+    <div class="btnrow" id="boardTools">
+      <label class="toggle" title="One admin runs between two neighbouring committee rooms"><input type="checkbox" id="optCap"> One admin can cover 2 rooms</label>
+      <label class="toggle" title="Use Security and Press applicants when no admin is free"><input type="checkbox" id="optOthers"> Borrow Security/Press</label>
+      <button id="btnAuto" class="primary" type="button">Auto-fill gaps</button>
+      <button id="btnEditC" type="button">Rename rooms</button>
+      <button id="btnClear" class="danger" type="button">Clear all</button>
+    </div>
+  </div>
+
+  <section id="viewBoard">
+    <div class="mboard" id="mboard"><div class="mtabs" id="mtabs" role="tablist" aria-label="Session"></div><div class="mrooms" id="mrooms"></div></div>
+    <div class="boardwrap"><table class="board"><thead id="bhead"></thead><tbody id="bbody"><tr><td class="empty" colspan="5">Loading the committee board…</td></tr></tbody></table></div>
+    <p class="muted" style="margin:8px 2px 0;font-size:12px">Dashed names are borrowed from Security or Press. Morning runs until 13:30, afternoon from 13:30.</p>
+  </section>
+
+  <section id="viewVols" hidden>
+    <div class="filters" style="margin-bottom:10px">
+      <input type="search" id="q" placeholder="Search name, phone, email" aria-label="Search volunteers">
+      <div class="seg" id="seg"></div>
+    </div>
+    <div class="vlist" id="vlist"><div class="empty">Loading volunteers…</div></div>
+  </section>
+</div>
+
+<dialog id="dlgPick"><div class="dlg" id="pickBody"></div></dialog>
+<dialog id="dlgVol"><div class="dlg">
+  <header><div><div class="eyebrow" id="volEyebrow">New volunteer</div><h2 id="volTitle">Add volunteer</h2></div><button type="button" class="ghost" data-close>Close</button></header>
+  <form class="grid" id="volForm">
+    <label class="f">First name<input id="fFirst" required></label>
+    <label class="f">Last name<input id="fLast"></label>
+    <label class="f">Phone<input id="fPhone" inputmode="tel"></label>
+    <label class="f">Email<input id="fEmail" type="email"></label>
+    <label class="f full">Grade<select id="fGrade"><option>Pre-IB or IB (PIB/IB)</option><option>Λύκειο (LY)</option><option>Other</option></select></label>
+    <fieldset class="full"><legend>Teams</legend>
+      <label class="toggle"><input type="checkbox" id="tAdmin"> Admin</label>
+      <label class="toggle"><input type="checkbox" id="tSecurity"> Security</label>
+      <label class="toggle"><input type="checkbox" id="tPress"> Press</label>
+    </fieldset>
+    <fieldset class="full"><legend>Available</legend>
+      <label class="toggle"><input type="checkbox" id="a_satAM"> Sat morning</label>
+      <label class="toggle"><input type="checkbox" id="a_satPM"> Sat afternoon</label>
+      <label class="toggle"><input type="checkbox" id="a_sunAM"> Sun morning</label>
+      <label class="toggle"><input type="checkbox" id="a_sunPM"> Sun afternoon</label>
+    </fieldset>
+    <label class="f full">What they wrote about availability<input id="fRaw"></label>
+    <label class="f full">Notes<textarea id="fNote" rows="2"></textarea></label>
+    <div class="full btnrow" style="justify-content:space-between">
+      <button type="button" class="danger" id="btnDel" hidden>Remove volunteer</button>
+      <div class="btnrow"><button type="button" data-close>Cancel</button><button class="primary" type="submit" id="btnSave">Save</button></div>
+    </div>
+  </form>
+</div></dialog>
+<dialog id="dlgRoster"><div class="dlg">
+  <header><div><div class="eyebrow">For the group chat</div><h2>Admin roster</h2></div><button type="button" class="ghost" data-close>Close</button></header>
+  <textarea class="rost" id="rosterText" readonly aria-label="Roster text"></textarea>
+  <div class="btnrow"><button class="primary" id="btnCopy" type="button">Copy roster</button><span id="copyMsg" class="muted"></span></div>
+</div></dialog>
+<dialog id="dlgInvite"><div class="dlg">
+  <header><div><div class="eyebrow">Send to your admins</div><h2>Invite admins to check their hours</h2></div><button type="button" class="ghost" data-close>Close</button></header>
+  <ol class="steps">
+    <li>On this page, open <b>Share</b> and turn on the public link. Copy it.</li>
+    <li>Paste it into the message below where it says [LINK], then send it to the group.</li>
+    <li>Each admin opens the link, signs in if the page asks, signs in with their name or their phone number, and sees only their own hours.</li>
+  </ol>
+  <textarea class="rost" id="inviteText" style="min-height:150px" aria-label="Invite message"></textarea>
+  <div class="btnrow"><button class="primary" id="btnCopyInv" type="button">Copy message</button><span id="copyInvMsg" class="muted"></span></div>
+  <p class="muted small">Volunteers only ever see names and rooms. Phone numbers and emails stay visible only to organizer accounts.</p>
+</div></dialog>
+<div class="toast" id="toast" hidden role="status"></div>
+
+<script>
+const SLOTS=[
+  {id:'satAM',day:'Saturday 31',short:'Sat AM',part:'Morning',time:'until 13:30'},
+  {id:'satPM',day:'Saturday 31',short:'Sat PM',part:'Afternoon',time:'13:30 on'},
+  {id:'sunAM',day:'Sunday 1',short:'Sun AM',part:'Morning',time:'until 13:30'},
+  {id:'sunPM',day:'Sunday 1',short:'Sun PM',part:'Afternoon',time:'13:30 on'}];
+const DAYPAIR={satAM:'satPM',satPM:'satAM',sunAM:'sunPM',sunPM:'sunAM'};
+const S={committees:[],vols:[],settings:{cap:1,includeOthers:false},got:{c:false,v:false},tab:'board',filter:'all',q:'',editC:false,clearArm:false};
+let db=null, readOnly=false;
+const $=id=>document.getElementById(id);
+function h(tag,props={},...kids){const e=document.createElement(tag);for(const[k,v]of Object.entries(props||{})){if(v==null||v===false)continue;if(k==='class')e.className=v;else if(k.startsWith('on'))e.addEventListener(k.slice(2),v);else if(k==='text')e.textContent=v;else e.setAttribute(k,v===true?'':v)}for(const k of kids.flat()){if(k==null||k===false)continue;e.append(k.nodeType?k:document.createTextNode(String(k)))}return e}
+const full=v=>[v.first,v.last].filter(Boolean).join(' ');
+const shortName=v=>v.first+(v.last?' '+v.last[0]+'.':'');
+const isAdmin=v=>(v.teams||[]).includes('admin');
+const eligible=v=>isAdmin(v)||S.settings.includeOthers;
+const asg=(v,s)=>(v.assign&&v.assign[s])||[];
+const needOf=(c,s)=>(c.need&&c.need[s]!=null)?c.need[s]:1;
+const onCell=(cid,s)=>S.vols.filter(v=>asg(v,s).includes(cid));
+const cname=cid=>(S.committees.find(c=>c.id===cid)||{}).name||'Removed room';
+let toastT;function toast(m){const t=$('toast');t.textContent=m;t.hidden=false;clearTimeout(toastT);toastT=setTimeout(()=>t.hidden=true,3200)}
+
+/* ---------- writes ---------- */
+const chains={};
+function writeDoc(path,data){
+  if(!db||readOnly){toast('This board is read-only for you.');return Promise.resolve()}
+  const p=(chains[path]||Promise.resolve()).then(()=>db.doc(path).set(data)).catch(e=>{
+    if(e&&e.code==='invalid_argument'){readOnly=true;$('ro').hidden=false;render()}
+    else if(e&&e.code==='quota_exceeded')toast('The board is full. Remove some volunteers first.');
+    else toast('Could not save. Check your connection and try again.');});
+  chains[path]=p;return p}
+function cleanVol(v){const o={...v};delete o.id;o.assign=Object.fromEntries(SLOTS.map(s=>[s.id,asg(v,s.id)]));return o}
+function saveVol(v){return writeDoc('volunteers/'+v.id,cleanVol(v))}
+function setAssign(v,slot,list){const nv={...v,assign:{...(v.assign||{}),[slot]:list}};const i=S.vols.findIndex(x=>x.id===v.id);if(i>=0)S.vols[i]=nv;render();return saveVol(nv)}
+
+/* ---------- render ---------- */
+function render(){renderStrip();renderBoard();renderVols();renderTools()}
+function renderTools(){
+  $('optCap').checked=S.settings.cap===2;$('optOthers').checked=!!S.settings.includeOthers;
+  $('boardTools').hidden=S.tab!=='board';
+  $('btnClear').textContent=S.clearArm?'Confirm: clear every assignment':'Clear all';
+  $('btnEditC').textContent=S.editC?'Done renaming':'Rename rooms';
+  for(const id of['btnAdd','btnImport','btnAuto','btnClear','btnEditC','optCap','optOthers'])$(id).disabled=readOnly||!db;
+  $('volCount').textContent=S.vols.length?`(${S.vols.length})`:'';
+}
+function slotStats(s){
+  const cs=S.committees;let covered=0,missing=0;
+  for(const c of cs){const n=needOf(c,s.id),have=onCell(c.id,s.id).length;if(have>=n)covered++;missing+=Math.max(0,n-have)}
+  const free=S.vols.filter(v=>v.avail&&v.avail[s.id]&&eligible(v)&&asg(v,s.id).length===0).length;
+  const adminsAvail=S.vols.filter(v=>v.avail&&v.avail[s.id]&&isAdmin(v)).length;
+  return{covered,total:cs.length,missing,free,adminsAvail}}
+function renderStrip(){
+  const st=$('strip');st.replaceChildren();
+  if(!S.got.c){st.append(h('div',{class:'slotcard muted'},'Loading coverage…'));return}
+  let totalMissing=0,totalFree=0;
+  for(const s of SLOTS){const x=slotStats(s);totalMissing+=x.missing;totalFree+=x.free;
+    const pct=x.total?Math.round(100*x.covered/x.total):0;
+    st.append(h('div',{class:'slotcard'},
+      h('div',{class:'eyebrow'},s.part+' · '+s.time),
+      h('div',{class:'day'},s.day),
+      h('div',{class:'big'},String(x.covered),h('small',{},` / ${x.total} rooms`)),
+      h('div',{class:'bar'+(x.covered<x.total?' short':'')},h('i',{style:`width:${pct}%`})),
+      h('div',{class:'muted',style:'font-size:12px'},`${x.adminsAvail} admins available · ${x.free} unassigned`)))}
+  const sm=$('summary');sm.hidden=!S.got.v||!S.committees.length;
+  if(totalMissing===0){sm.className='alert ok';sm.textContent='Every room has an admin in every session.'}
+  else{sm.className='alert';
+    sm.textContent=`${totalMissing} room-sessions still need an admin.`+(totalFree?` ${totalFree} free people could fill some — try Auto-fill gaps.`:(S.settings.cap===1?' Nobody free is left. Turning on “One admin can cover 2 rooms” or “Borrow Security/Press” would close the gap.':' Nobody free is left. Recruit more admins or borrow Security/Press.'))}
+}
+function renderBoard(){
+  const hd=$('bhead'),bd=$('bbody');
+  hd.replaceChildren(h('tr',{},h('th',{},'Committee'),SLOTS.map(s=>h('th',{},s.day.replace('urday','').replace('day','')+' · '+s.part,h('span',{class:'mono'},s.time)))));
+  if(!S.got.c){return}
+  bd.replaceChildren();
+  if(!S.committees.length){bd.append(h('tr',{},h('td',{class:'empty',colspan:5},'No committees yet.')));return}
+  for(const c of S.committees){
+    const nameCell=S.editC?h('div',{class:'cname'},h('input',{id:'cn_'+c.id,value:c.name,'aria-label':'Committee name',onchange:e=>{const name=e.target.value.trim()||c.name;c.name=name;writeDoc('committees/'+c.id,{...strip(c)})}}),
+        h('div',{class:'need'},'Admins per session',h('select',{id:'cneed_'+c.id,onchange:e=>{const n=+e.target.value;c.need=Object.fromEntries(SLOTS.map(s=>[s.id,n]));writeDoc('committees/'+c.id,strip(c));render()}},[1,2,3].map(n=>h('option',{value:n,selected:needOf(c,'satAM')===n},String(n))))))
+      :h('div',{},c.name);
+    const tr=h('tr',{},h('th',{scope:'row'},nameCell));
+    for(const s of SLOTS){const short=onCell(c.id,s.id).length<needOf(c,s.id);
+      tr.append(h('td',{class:'cell '+(short?'short':'ok')},cellContent(c,s,false)))}
+    bd.append(tr)}
+  renderMobileBoard();
+}
+function cellContent(c,s,big){
+  const people=onCell(c.id,s.id),n=needOf(c,s.id),short=people.length<n;
+  return h('div',{class:'cellin'},
+    people.map(v=>h('span',{class:'chip'+(isAdmin(v)?'':' other'),title:full(v)+(v.phone?' · '+v.phone:'')+(asg(v,s.id).length>1?' · also covers '+asg(v,s.id).filter(x=>x!==c.id).map(cname).join(', '):'')},h('span',{},(big?full(v):shortName(v))+(asg(v,s.id).length>1?' ×2':'')),
+      readOnly?null:h('button',{type:'button','aria-label':'Remove '+full(v),onclick:()=>setAssign(v,s.id,asg(v,s.id).filter(x=>x!==c.id))},'×'))),
+    short?h('span',{class:'needtag'},people.length?`needs ${n-people.length} more`:'no admin'):null,
+    readOnly?null:h('button',{class:'addbtn',type:'button',onclick:()=>openPick(c,s)},people.length?'+ add':'+ assign'))}
+/* Phone layout: pick one session, see every room as a stacked card. */
+S.mslot=S.mslot||'satAM';
+function renderMobileBoard(){
+  const tabs=$('mtabs'),rooms=$('mrooms');
+  tabs.replaceChildren(...SLOTS.map(s=>{const x=slotStats(s);return h('button',{type:'button',role:'tab','aria-selected':String(S.mslot===s.id),onclick:()=>{S.mslot=s.id;renderMobileBoard()}},
+    h('b',{},s.short),h('span',{class:x.covered<x.total?'bad':'good'},`${x.covered}/${x.total}`))}));
+  rooms.replaceChildren();
+  const s=SLOTS.find(x=>x.id===S.mslot);
+  if(!S.committees.length){rooms.append(h('div',{class:'empty'},'No committees yet.'));return}
+  rooms.append(h('div',{class:'muted small'},s.day+' · '+s.part+' · '+s.time));
+  for(const c of S.committees){const short=onCell(c.id,s.id).length<needOf(c,s.id);
+    const title=S.editC?h('input',{id:'mcn_'+c.id,value:c.name,'aria-label':'Committee name',onchange:e=>{const name=e.target.value.trim()||c.name;c.name=name;writeDoc('committees/'+c.id,{...strip(c)})}}):h('div',{class:'mroomname'},c.name);
+    rooms.append(h('div',{class:'mroom '+(short?'short':'ok')},title,cellContent(c,s,true)))}}
+function strip(c){const o={...c};delete o.id;return o}
+function renderVols(){
+  const seg=$('seg');seg.replaceChildren(...[['all','All'],['admin','Admin'],['security','Security'],['press','Press'],['unassigned','Free, not placed'],['review','Check availability']].map(([k,l])=>h('button',{type:'button','aria-pressed':String(S.filter===k),onclick:()=>{S.filter=k;renderVols()}},l)));
+  const list=$('vlist');
+  if(!S.got.v){return}
+  const q=S.q.toLowerCase();
+  let vs=S.vols.filter(v=>{
+    if(q&&!(full(v)+' '+(v.phone||'')+' '+(v.email||'')).toLowerCase().includes(q))return false;
+    if(['admin','security','press'].includes(S.filter))return(v.teams||[]).includes(S.filter);
+    if(S.filter==='unassigned')return SLOTS.some(s=>v.avail&&v.avail[s.id]&&!asg(v,s.id).length);
+    if(S.filter==='review')return!!v.review||!SLOTS.some(s=>v.avail&&v.avail[s.id]);
+    return true});
+  vs.sort((a,b)=>(isAdmin(b)-isAdmin(a))||full(a).localeCompare(full(b)));
+  list.replaceChildren();
+  if(!S.vols.length){list.append(h('div',{class:'empty'},'No volunteers yet. Use “Add volunteer” or import the form responses.'));return}
+  if(!vs.length){list.append(h('div',{class:'empty'},'Nobody matches this filter.'));return}
+  for(const v of vs){
+    list.append(h('div',{class:'vrow'},
+      h('div',{style:'min-width:0'},h('div',{class:'vname'},full(v)),
+        h('div',{class:'tags'},(v.teams||[]).map(t=>h('span',{class:'tag'+(t==='admin'?' admin':'')},t)),v.grade?h('span',{class:'tag'},v.grade.includes('IB')?'PIB/IB':v.grade.includes('LY')?'Lykeio':v.grade):null,(v.review||!SLOTS.some(s=>v.avail&&v.avail[s.id]))?h('span',{class:'tag review'},'check availability'):null),
+        v.raw?h('div',{class:'note'},'“'+v.raw+'”'):null, v.note?h('div',{class:'note'},v.note):null),
+      h('div',{class:'slots'},SLOTS.map(s=>{const a=asg(v,s.id),av=v.avail&&v.avail[s.id];return h('div',{class:'sl'+(a.length?' as':av?' av':'')},h('b',{},s.short),h('span',{},a.length?a.map(cname).join(' + '):av?'free':'—'))})),
+      h('div',{class:'contact'},v.phone?h('span',{class:'mono'},v.phone):null,v.email?h('span',{class:'mono'},v.email):null),
+      readOnly?h('span'):h('button',{type:'button',onclick:()=>openVol(v)},'Edit')))}
+}
+
+/* ---------- picker ---------- */
+function openPick(c,s){
+  /* Free choice: everyone can be placed anywhere, any session. Availability and other rooms are shown as notes only. */
+  const body=$('pickBody');let q='';
+  const row=v=>{const a=asg(v,s.id),av=v.avail&&v.avail[s.id];
+    const why=[!isAdmin(v)?'Applied for '+(v.teams||[]).join(' & '):null,a.length?'Also on '+a.map(cname).join(', '):null,!av?(v.raw?'Wrote: “'+v.raw+'”':'No times given'):null].filter(Boolean).join(' · ');
+    return h('button',{type:'button',class:'pick',onclick:async()=>{$('dlgPick').close();await setAssign(v,s.id,[...a,c.id]);toast(`${full(v)} → ${c.name}, ${s.short}`)}},
+      h('span',{},h('span',{class:'who'},full(v)),why?h('small',{},why):null),h('span',{class:'mono'},a.length?'2nd room':av?'free':'outside their times'))};
+  const draw=()=>{
+    const here=onCell(c.id,s.id).map(v=>v.id),qq=norm(q);
+    const all=S.vols.filter(v=>!here.includes(v.id)&&(!qq||norm(full(v)).includes(qq)))
+      .sort((a,b)=>(isAdmin(b)-isAdmin(a))||full(a).localeCompare(full(b)));
+    const groups=[['Free this session',all.filter(v=>v.avail&&v.avail[s.id]&&!asg(v,s.id).length)],
+      ['Already in another room this session',all.filter(v=>asg(v,s.id).length)],
+      ['Didn’t list this session (you can still pick them)',all.filter(v=>!(v.avail&&v.avail[s.id])&&!asg(v,s.id).length)]];
+    const list=h('div',{class:'picklist',id:'pickList'},groups.filter(g=>g[1].length).map(([t,vs])=>[h('div',{class:'eyebrow',style:'margin-top:6px'},t),...vs.map(row)]).flat());
+    const old=$('pickList');if(old){old.replaceWith(list);return}
+    body.replaceChildren(
+      h('header',{},h('div',{},h('div',{class:'eyebrow'},s.day+' · '+s.part),h('h2',{},'Assign to '+c.name)),h('button',{type:'button',class:'ghost',onclick:()=>$('dlgPick').close()},'Close')),
+      h('input',{type:'search',id:'pickSearch',placeholder:'Search any volunteer','aria-label':'Search volunteers',style:'padding:8px 10px;border:1px solid var(--line);border-radius:8px;background:var(--bg)',oninput:e=>{q=e.target.value;draw()}}),
+      list.childNodes.length?list:h('p',{class:'muted',id:'pickList'},'Nobody matches that name.'));
+  };draw();$('dlgPick').showModal()}
+
+/* ---------- volunteer form ---------- */
+let editing=null,delArm=false;
+function openVol(v){editing=v||null;delArm=false;
+  $('volEyebrow').textContent=v?'Edit volunteer':'New volunteer';$('volTitle').textContent=v?full(v):'Add volunteer';
+  $('fFirst').value=v?.first||'';$('fLast').value=v?.last||'';$('fPhone').value=v?.phone||'';$('fEmail').value=v?.email||'';
+  $('fGrade').value=v?.grade||'Pre-IB or IB (PIB/IB)';$('fRaw').value=v?.raw||'';$('fNote').value=v?.note||'';
+  const t=v?.teams||['admin'];$('tAdmin').checked=t.includes('admin');$('tSecurity').checked=t.includes('security');$('tPress').checked=t.includes('press');
+  for(const s of SLOTS)$('a_'+s.id).checked=!!(v?.avail&&v.avail[s.id]);
+  $('btnDel').hidden=!v;$('btnDel').textContent='Remove volunteer';$('dlgVol').showModal();$('fFirst').focus()}
+$('volForm').addEventListener('submit',async e=>{e.preventDefault();
+  const teams=[['admin','tAdmin'],['security','tSecurity'],['press','tPress']].filter(([,i])=>$(i).checked).map(([k])=>k);
+  const avail=Object.fromEntries(SLOTS.map(s=>[s.id,$('a_'+s.id).checked]));
+  const base=editing?{...editing}:{id:'v'+Date.now().toString(36),assign:{}};
+  const assign={...(base.assign||{})};
+  const v={...base,first:$('fFirst').value.trim(),last:$('fLast').value.trim(),phone:$('fPhone').value.trim(),email:$('fEmail').value.trim(),grade:$('fGrade').value,teams,avail,raw:$('fRaw').value.trim(),note:$('fNote').value.trim(),assign,review:false};
+  if(!v.first)return;
+  const i=S.vols.findIndex(x=>x.id===v.id);if(i>=0)S.vols[i]=v;else S.vols.push(v);
+  $('dlgVol').close();render();await saveVol(v);toast(editing?'Saved '+full(v):'Added '+full(v))});
+$('btnDel').addEventListener('click',async()=>{if(!editing)return;if(!delArm){delArm=true;$('btnDel').textContent='Confirm remove';return}
+  const v=editing;S.vols=S.vols.filter(x=>x.id!==v.id);$('dlgVol').close();render();
+  try{await db.doc('volunteers/'+v.id).delete();toast('Removed '+full(v))}catch(e){toast('Could not remove. Try again.')}});
+
+/* ---------- auto-fill ---------- */
+function planFill(){
+  /* Session by session, rooms in board order (GA committees first when people run short).
+     For each open room pick the person who: is an admin (borrowed Security/Press last, unchecked availability after that),
+     has worked the fewest sessions so far (fair share), and has NOT been in this room yet (rotation, so admins
+     see different committees). Assignments already on the board are kept. */
+  const cap=S.settings.cap,rooms=S.committees,order=Object.fromEntries(rooms.map((c,i)=>[c.id,i]));
+  const work=new Map(S.vols.map(v=>[v.id,Object.fromEntries(SLOTS.map(s=>[s.id,[...asg(v,s.id)]]))]));
+  const total=id=>Object.values(work.get(id)).reduce((a,x)=>a+x.length,0);
+  const timesIn=(id,cid)=>SLOTS.filter(s=>work.get(id)[s.id].includes(cid)).length;
+  const count=(cid,s)=>{let n=0;for(const a of work.values())if(a[s].includes(cid))n++;return n};
+  const tier=v=>(isAdmin(v)?0:1)+(v.review?2:0);
+  let placed=0;
+  for(const s of SLOTS){
+    const pool=S.vols.filter(v=>eligible(v)&&v.avail&&v.avail[s.id]);
+    for(let round=0;round<cap;round++){
+      for(let guard=0;guard<200;guard++){
+        const room=rooms.find(c=>needOf(c,s.id)-count(c.id,s.id)>0&&pool.some(v=>work.get(v.id)[s.id].length<=round&&!work.get(v.id)[s.id].includes(c.id)));
+        if(!room)break;
+        const prev=SLOTS[SLOTS.indexOf(s)-1];
+        const score=v=>{const mine=work.get(v.id);let sc=tier(v)*1000+total(v.id)*20+timesIn(v.id,room.id)*60;
+          if(prev&&mine[prev.id].includes(room.id))sc+=30;
+          if(round>0)sc+=mine[s.id].some(x=>Math.abs(order[x]-order[room.id])===1)?-15:15;
+          return sc};
+        const cands=pool.filter(v=>work.get(v.id)[s.id].length<=round&&!work.get(v.id)[s.id].includes(room.id))
+          .sort((a,b)=>score(a)-score(b)||full(a).localeCompare(full(b)));
+        work.get(cands[0].id)[s.id].push(room.id);placed++}}}
+  return{work,placed}}
+async function autoFill(){
+  const{work,placed}=planFill();
+  const changed=S.vols.filter(v=>SLOTS.some(s=>work.get(v.id)[s.id].join()!==asg(v,s.id).join()));
+  S.vols=S.vols.map(v=>({...v,assign:work.get(v.id)}));render();
+  for(const v of changed)await saveVol(S.vols.find(x=>x.id===v.id));
+  toast(placed?`Placed ${placed} admin${placed>1?'s':''}.`:'No free people match the remaining gaps.')}
+
+/* ---------- roster ---------- */
+function rosterText(){const L=['MoMUN admin roster',''];
+  for(const s of SLOTS){L.push(`${s.day} · ${s.part} (${s.time})`);
+    for(const c of S.committees){const p=onCell(c.id,s.id);L.push(`  ${c.name}: `+(p.length?p.map(v=>full(v)+(v.phone?` (${v.phone})`:'')).join(', '):'NEEDS ADMIN'))}
+    L.push('')}
+  return L.join('\n')}
+
+/* ---------- import ---------- */
+function parseAvail(raw){
+  const t=(raw||'').toLowerCase().replace(/\s+/g,' ');const out={satAM:false,satPM:false,sunAM:false,sunPM:false};if(!t.trim())return{avail:out,sure:false};
+  if(/both days|all (the )?(time|times|hours|day)|full duration|^all|whole/.test(t)&&!/sat|sun|31|01\/11|1\/11/.test(t.replace(/both days/,''))){for(const k in out)out[k]=true;return{avail:out,sure:true}}
+  const marks=[];const re=/(sat(urday)?|σάββατο|σαββατο|31(\/|\.)10|31st|31)|(sun(day)?|κυριακή|κυριακη|0?1(\/|\.)11)/g;let m;
+  while((m=re.exec(t))){const day=m[1]?'sat':'sun';if(!marks.length||marks[marks.length-1].day!==day)marks.push({day,i:m.index})}
+  if(!marks.length)return{avail:out,sure:false};
+  marks.forEach((mk,j)=>{const seg=t.slice(mk.i,j+1<marks.length?marks[j+1].i:t.length).replace(/0?1\/11|31\/10|31\.10|01\.11/g,'');
+    const hrs=[...seg.matchAll(/(\d{1,2})(?:[:.](\d{2}))?/g)].map(x=>{let v=+x[1]+(x[2]?+x[2]/60:0);if(v<8)v+=12;return v}).filter(v=>v>=8&&v<=21);
+    let am=true,pm=true;
+    if(/morning/.test(seg)||(!hrs.length&&/morning/.test(t))){pm=false}
+    else if(!hrs.length&&/afternoon/.test(t)){am=false}
+    else if(hrs.length>=2){const a=Math.min(...hrs),b=Math.max(...hrs);am=a<13;pm=b>13.6}
+    else if(hrs.length===1){am=hrs[0]<13;pm=true}
+    if(am)out[mk.day+'AM']=true;if(pm)out[mk.day+'PM']=true});
+  return{avail:out,sure:true}}
+const titleCase=s=>(s||'').trim().toLowerCase().replace(/(^|[\s-])(\p{L})/gu,(a,b,c)=>b+c.toUpperCase());
+$('btnImport').addEventListener('click',()=>$('fileIn').click());
+$('fileIn').addEventListener('change',async e=>{const f=e.target.files[0];e.target.value='';if(!f)return;
+  if(!window.XLSX){toast('The spreadsheet reader did not load. Reload the page and try again.');return}
+  try{const wb=XLSX.read(await f.arrayBuffer());const rows=XLSX.utils.sheet_to_json(wb.Sheets[wb.SheetNames[0]],{defval:''});
+    const col=(r,...keys)=>{for(const k of Object.keys(r)){const kk=k.toLowerCase().trim();if(keys.some(x=>typeof x==='string'?kk===x:x.test(kk)))return String(r[k]).trim()}return''};
+    const known=new Set(S.vols.map(v=>(full(v)).toLowerCase().replace(/\s+/g,' ')));const ids=new Set(S.vols.map(v=>v.id));
+    let added=0,skipped=0;
+    for(const r of rows){
+      const first=titleCase(col(r,'first name')),last=titleCase(col(r,'last name'));if(!first&&!last)continue;
+      const fid=col(r,'id'),id=fid?'form-'+fid:'v'+Math.random().toString(36).slice(2,9);
+      if(ids.has(id)||known.has((first+' '+last).toLowerCase().replace(/\s+/g,' '))){skipped++;continue}
+      const teamsRaw=col(r,/teams/).toLowerCase();const teams=[teamsRaw.includes('admin')&&'admin',teamsRaw.includes('security')&&'security',teamsRaw.includes('press')&&'press'].filter(Boolean);
+      const raw=col(r,/availability/).replace(/\s+/g,' ');const pa=parseAvail(raw);
+      const email=col(r,'email1')||(col(r,'email')!=='anonymous'?col(r,'email'):'');
+      const v={id,first,last,phone:col(r,/phone/),email,grade:col(r,'grade'),teams,avail:pa.avail,raw,note:'',assign:{},review:true};
+      S.vols.push(v);ids.add(id);added++;await saveVol(v)}
+    render();toast(added?`Added ${added} new volunteer${added>1?'s':''}. Check their availability tags.`:`No new names. ${skipped} already on the board.`)
+  }catch(err){toast('Could not read that file. Export the Forms responses as .xlsx and try again.')}});
+
+/* ---------- wiring ---------- */
+function setTab(t){S.tab=t;$('tabBoard').setAttribute('aria-selected',String(t==='board'));$('tabVols').setAttribute('aria-selected',String(t==='vols'));$('viewBoard').hidden=t!=='board';$('viewVols').hidden=t!=='vols';renderTools()}
+$('tabBoard').onclick=()=>setTab('board');$('tabVols').onclick=()=>setTab('vols');
+$('q').addEventListener('input',e=>{S.q=e.target.value;renderVols()});
+$('btnAdd').onclick=()=>openVol(null);
+$('btnAuto').onclick=autoFill;
+$('btnEditC').onclick=()=>{S.editC=!S.editC;render()};
+$('btnClear').onclick=async()=>{if(!S.clearArm){S.clearArm=true;renderTools();setTimeout(()=>{S.clearArm=false;renderTools()},5000);return}
+  S.clearArm=false;const changed=S.vols.filter(v=>SLOTS.some(s=>asg(v,s.id).length));S.vols=S.vols.map(v=>({...v,assign:{}}));render();
+  for(const v of changed)await saveVol(S.vols.find(x=>x.id===v.id));toast('Cleared all assignments.')};
+const saveSettings=()=>writeDoc('settings/main',{...S.settings});
+$('optCap').onchange=e=>{S.settings.cap=e.target.checked?2:1;render();saveSettings()};
+$('optOthers').onchange=e=>{S.settings.includeOthers=e.target.checked;render();saveSettings()};
+$('btnRoster').onclick=()=>{$('rosterText').value=rosterText();$('copyMsg').textContent='';$('dlgRoster').showModal()};
+$('btnCopy').onclick=()=>{const ta=$('rosterText');navigator.clipboard?.writeText(ta.value).then(()=>$('copyMsg').textContent='Copied.',()=>{ta.select();$('copyMsg').textContent='Selected. Press Ctrl+C or ⌘C to copy.'})||(ta.select())};
+document.querySelectorAll('[data-close]').forEach(b=>b.addEventListener('click',()=>b.closest('dialog').close()));
+/* ---------- names, sign-in and the volunteer view ---------- */
+const LEADS=['konstantinos dellis','jim alexiou'];
+const GR={'α':'a','β':'v','γ':'g','δ':'d','ε':'e','ζ':'z','η':'i','θ':'th','ι':'i','κ':'k','λ':'l','μ':'m','ν':'n','ξ':'x','ο':'o','π':'p','ρ':'r','σ':'s','ς':'s','τ':'t','υ':'y','φ':'f','χ':'ch','ψ':'ps','ω':'o'};
+function norm(s){s=(s||'').toLowerCase().normalize('NFD').replace(/[̀-ͯ]/g,'');return [...s].map(c=>GR[c]??c).join('').replace(/[^a-z\s-]/g,' ').replace(/-/g,' ').replace(/\s+/g,' ').trim()}
+const variants=n=>{const t=norm(n).split(' ');return[t.join(' '),[...t].reverse().join(' ')]};
+const isLead=n=>variants(n).some(k=>LEADS.includes(k));
+function store(k,v){try{v==null?localStorage.removeItem(k):localStorage.setItem(k,v)}catch(e){}}
+function stored(k){try{return localStorage.getItem(k)}catch(e){return null}}
+
+const digits=s=>(s||'').replace(/\D/g,'').slice(-10);
+const hashCache=new Map();
+async function phoneHash(key,d){const ck=key+'|'+d;if(hashCache.has(ck))return hashCache.get(ck);
+  const enc=new TextEncoder();const base=await crypto.subtle.importKey('raw',enc.encode(d),'PBKDF2',false,['deriveBits']);
+  const bits=await crypto.subtle.deriveBits({name:'PBKDF2',salt:enc.encode('momun:'+key),iterations:100000,hash:'SHA-256'},base,256);
+  const hx=[...new Uint8Array(bits)].map(x=>x.toString(16).padStart(2,'0')).join('');hashCache.set(ck,hx);return hx}
+async function buildRoster(){const people=[];
+  for(const v of S.vols){const k=norm(full(v)),d=digits(v.phone);const o={n:full(v),k,t:(v.teams||[]).join(','),s:Object.fromEntries(SLOTS.map(s=>[s.id,asg(v,s.id).map(cname)]))};
+    if(d.length>=8)o.p=await phoneHash(k,d);people.push(o)}
+  people.sort((a,b)=>a.k.localeCompare(b.k));return{people}}
+let pubLast=null,pubT=null,pubBusy=false;
+function schedulePublic(){
+  if(S.mode!=='lead'||!db||readOnly||!S.got.c||!S.got.v||!S.got.r||!S.vols.length)return;
+  clearTimeout(pubT);pubT=setTimeout(async()=>{if(pubBusy)return schedulePublic();pubBusy=true;
+    try{const r=await buildRoster(),j=JSON.stringify(r.people);if(j!==pubLast){pubLast=j;await writeDoc('public/roster',{people:r.people,updated:new Date().toISOString()})}}finally{pubBusy=false}},1500)}
+const _render=render;render=function(){_render();schedulePublic()};
+
+function findPerson(people,name){const ks=variants(name);const p=people.find(x=>ks.includes(x.k));if(p)return p;
+  const toks=norm(name).split(' ').filter(Boolean);if(toks.length<2)return null;
+  const m=people.filter(x=>toks.every(t=>x.k.split(' ').includes(t)));return m.length===1?m[0]:null}
+let meData,meSub=null,rosterWait=[];
+function watchRoster(){if(meSub||!db)return;meData=undefined;
+  meSub=db.doc('public/roster').onSnapshot(sn=>{meData=sn.exists?sn.data():null;rosterWait.splice(0).forEach(f=>f());if(S.mode==='me')renderMe()},()=>{meData=null;rosterWait.splice(0).forEach(f=>f());if(S.mode==='me')renderMe()})}
+const rosterReady=()=>meData!==undefined?Promise.resolve():new Promise(r=>rosterWait.push(r));
+function renderMe(){
+  const name=S.me,body=$('meBody');$('meTags').replaceChildren();
+  if(meData===undefined){body.replaceChildren(h('p',{class:'muted'},'Loading your hours…'));return}
+  if(!meData){$('meName').textContent='Hours not posted yet';body.replaceChildren(h('p',{},'The admin schedule hasn’t been posted yet. Check again later.'));return}
+  const p=findPerson(meData.people||[],name);
+  if(!p){signOut();gateError('Please sign in again.');return}
+  $('meName').textContent='Hello, '+p.n.split(' ')[0];
+  $('meTags').append(...(p.t?p.t.split(','):[]).map(t=>h('span',{class:'tag'+(t==='admin'?' admin':'')},t)));
+  const on=SLOTS.filter(s=>(p.s[s.id]||[]).length);
+  body.replaceChildren(
+    h('p',{},on.length?`You’re on duty for ${on.length} session${on.length>1?'s':''}.`:'You haven’t been placed in a room yet.'),
+    ...SLOTS.map(s=>{const rooms=p.s[s.id]||[];return h('div',{class:'shift '+(rooms.length?'on':'off')},
+      h('div',{class:'when'},h('b',{},s.day+' · '+s.part),h('span',{class:'mono muted'},s.time)),
+      h('div',{class:'where'},rooms.length?rooms.join(' and '):'Not on duty'))}))}
+
+function showOnly(id){for(const x of['gate','me','lead'])$(x).hidden=x!==id}
+const PW_HASH='7dca1fbb3819422ceaf530e09ded052069ed3ef8fe914aa4c12c00dee4c21bba';
+async function sha(s){const b=await crypto.subtle.digest('SHA-256',new TextEncoder().encode(s));return[...new Uint8Array(b)].map(x=>x.toString(16).padStart(2,'0')).join('')}
+function gateError(m){$('gateErr').textContent=m;$('gateErr').hidden=false}
+let orgMode=false,method='name';
+function setGateMode(){const o=orgMode,ph=!o&&method==='phone';$('gate').querySelector('.gatecard').classList.toggle('org',o);
+  $('gateEyebrow').textContent=o?'MoraitisMUN · Organizers':'MoraitisMUN · Admin team';
+  $('gateTitle').textContent=o?'Organizer sign in':'Volunteer sign in';
+  $('gateLede').textContent=o?'For the head of admin and the deputy. Sign in with your full name and the organizer password.':'Sign in with your full name or with your phone number, as you wrote it on the volunteer form.';
+  $('methodTabs').hidden=o;$('mName').setAttribute('aria-selected',String(!ph));$('mPhone').setAttribute('aria-selected',String(ph));
+  $('nameField').hidden=ph;$('pwField').hidden=!o&&!ph;$('pickWrap').hidden=true;
+  $('pwLabel').textContent=o?'Organizer password':'Phone number';
+  $('gatePw').placeholder=o?'':'69XXXXXXXX';$('gatePw').setAttribute('inputmode',o?'text':'tel');
+  $('gateBtn').textContent=o?'Open the admin desk':'Show my hours';
+  $('orgHint').textContent=o?'Volunteering at the conference?':'Head of admin or deputy?';
+  $('btnOrg').textContent=o?'Volunteer sign in':'Organizer sign in'}
+function pickMethod(m){method=m;$('gateErr').hidden=true;setGateMode();(m==='phone'?$('gatePw'):$('gateName')).focus()}
+$('mName').onclick=()=>pickMethod('name');$('mPhone').onclick=()=>pickMethod('phone');
+$('btnOrg').addEventListener('click',()=>{orgMode=!orgMode;$('gatePw').value='';$('gateErr').hidden=true;setGateMode();$('gateName').focus()});
+function resetGate(){$('gateName').value='';$('gatePw').value='';$('gateErr').hidden=true;setGateMode()}
+function signOut(){orgMode=false;store('momun_name',null);store('momun_lead',null);store('momun_ok',null);S.mode='gate';showOnly('gate');resetGate();(method==='phone'?$('gatePw'):$('gateName')).focus()}
+document.querySelectorAll('.switch').forEach(b=>b.addEventListener('click',signOut));
+$('gateName').addEventListener('input',()=>{$('gateErr').hidden=true});
+$('gatePw').addEventListener('input',()=>{$('gateErr').hidden=true;$('pickWrap').hidden=true});
+function enter(p){store('momun_ok',p.p||'');store('momun_name',p.n);route(p.n)}
+$('gateForm').addEventListener('submit',async e=>{e.preventDefault();$('gateErr').hidden=true;
+  const n=$('gateName').value.trim().replace(/\s+/g,' '),pw=$('gatePw').value.trim();
+  if(orgMode){if(!n){gateError('Type your full name.');return}if(!isLead(n)){gateError('That name isn’t on the organizer list.');return}
+    if(await sha(pw)!==PW_HASH){gateError('That password isn’t right.');$('gatePw').focus();return}store('momun_lead',PW_HASH);store('momun_name',n);route(n);return}
+  if(method==='name'&&!n){gateError('Type your full name.');return}
+  if(method==='phone'&&digits(pw).length<8){gateError('Type your phone number.');return}
+  if(method==='name'&&isLead(n)){gateError('Organizers: use the Organizer sign in button below.');return}
+  if(!db){gateError('Sign in when the page asks, then open this link again.');return}
+  $('gateBtn').disabled=true;$('gateBtn').textContent='Checking…';
+  try{watchRoster();await rosterReady();
+    if(!meData){gateError('The admin schedule hasn’t been posted yet. Check again later.');return}
+    const people=meData.people||[];
+    if(method==='name'){const p=findPerson(people,n);if(!p){gateError('We couldn’t find that name. Type your first and last name as on the volunteer form.');return}enter(p);return}
+    const d=digits(pw),hits=[];for(const p of people)if(p.p&&await phoneHash(p.k,d)===p.p)hits.push(p);
+    if(!hits.length){gateError('We couldn’t find that number. Use the one from your volunteer form, or sign in with your name.');return}
+    if(hits.length===1){enter(hits[0]);return}
+    const w=$('pickWrap');w.replaceChildren(h('p',{class:'small muted'},'This number is on more than one form. Which one are you?'),...hits.map(p=>h('button',{type:'button',class:'pick',onclick:()=>enter(p)},h('span',{class:'who'},p.n))));w.hidden=false}
+  finally{$('gateBtn').disabled=false;$('gateBtn').textContent=orgMode?'Open the admin desk':'Show my hours'}});
+
+let leadSubs=false;
+function startLead(){if(leadSubs||!db)return;leadSubs=true;
+  const err=()=>toast('Lost the live connection. Reload the page.');
+  db.collection('committees').orderBy('order').onSnapshot(sn=>{S.committees=sn.docs.map(d=>({id:d.id,...d.data()}));S.got.c=true;
+    $('noaccess').hidden=!(sn.empty&&!sn.metadata.fromCache);render()},err);
+  db.collection('volunteers').onSnapshot(sn=>{S.vols=sn.docs.map(d=>({id:d.id,...d.data()}));S.got.v=true;render()},err);
+  db.doc('settings/main').onSnapshot(sn=>{if(sn.exists)S.settings={cap:1,includeOthers:false,...sn.data()};render()},err);
+  db.doc('public/roster').onSnapshot(sn=>{if(!sn.metadata.hasPendingWrites){pubLast=sn.exists?JSON.stringify(sn.data().people||[]):'';S.got.r=true;render()}},err)}
+function route(n){S.me=n;
+  if(isLead(n)){S.mode='lead';$('leadName').textContent=n;showOnly('lead');
+    if(!db){$('bbody').replaceChildren(h('tr',{},h('td',{class:'empty',colspan:5},'Sign in to load the board.')));renderTools();return}
+    startLead();render()}
+  else{S.mode='me';showOnly('me');watchRoster();renderMe()}}
+
+$('btnInvite').onclick=()=>{$('inviteText').value='Hi admins! 👋 Your MoraitisMUN admin hours are ready.\n\n1. Open this link: [LINK]\n2. Sign in if it asks you to\n3. Sign in with your full name OR your phone number, as you wrote it on the volunteer form\n\nYou’ll see which committee room you’re in and when. Message me if anything looks wrong!';$('copyInvMsg').textContent='';$('dlgInvite').showModal()};
+$('btnCopyInv').onclick=()=>{const ta=$('inviteText');navigator.clipboard?.writeText(ta.value).then(()=>$('copyInvMsg').textContent='Copied.',()=>{ta.select();$('copyInvMsg').textContent='Selected. Press Ctrl+C or ⌘C to copy.'})||(ta.select())};
+
+S.mode='gate';S.got.r=false;render();
+(async()=>{
+  db=window.claude?await window.claude.use('db'):null;
+  if(db){try{const u=await window.claude.use('user');const w=u&&await u.can('data.write');if(w===false)readOnly=true}catch(e){}}
+  const n=stored('momun_name');
+  if(n&&(!isLead(n)||stored('momun_lead')===PW_HASH))route(n);else{store('momun_name',null);showOnly('gate');$('gateName').focus()}
+})();
+</script>
